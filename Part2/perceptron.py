@@ -194,6 +194,7 @@ if __name__ == "__main__":
         default="sst2",
         help="Data source, one of ('sst2', 'newsgroups')",
     )
+    # todo: add more features
     parser.add_argument(
         "-f",
         "--features",
