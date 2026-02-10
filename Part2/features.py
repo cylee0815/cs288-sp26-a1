@@ -24,8 +24,16 @@ class BagOfWords(FeatureMap):
     @classmethod
     def featurize(self, text: str) -> Dict[str, float]:
         # TODO: implement this! Expected # of lines: <5
-        raise NotImplementedError
-        return self.prefix_with_name({})
+        # raise NotImplementedError
+        # return self.prefix_with_name({})
+        # # 1. Normalize, split, and filter stop words
+        # tokens = [w for w in text.lower().split() if w not in self.STOP_WORDS]
+        # # 2. Count frequencies
+        # counts = {token: float(tokens.count(token)) for token in set(tokens)}
+        # return self.prefix_with_name(counts)
+        # Fixed: It seems that we only wish to have a count of 1 for each unique word
+        tokens = {w for w in text.lower().split() if w not in self.STOP_WORDS}
+        return self.prefix_with_name({t: 1.0 for t in tokens})
 
 
 class SentenceLength(FeatureMap):

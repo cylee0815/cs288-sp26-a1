@@ -1,4 +1,4 @@
-"""Perceptron model model for Assignment 1: Starter code.
+"""Perceptron model for Assignment 1: Starter code.
 
 You can change this code while keeping the function giving headers. You can add any functions that will help you. The given function headers are used for testing the code, so changing them will fail testing.
 """
@@ -25,7 +25,14 @@ def featurize_data(
 ) -> List[DataPointWithFeatures]:
     """Add features to each datapoint based on feature types"""
     # TODO: Implement this!
-    raise NotImplementedError
+    # raise NotImplementedError
+    featurizer = make_featurize(feature_types)
+    
+    labeled_data = []
+    for dp in data:
+        features = featurizer(dp.text)
+        labeled_data.append(DataPointWithFeatures(dp.id, dp.text, dp.label, features))
+    return labeled_data
 
 
 class PerceptronModel:
@@ -50,8 +57,14 @@ class PerceptronModel:
             The output score.
         """
         # TODO: Implement this! Expected # of lines: <10
-        raise NotImplementedError
-
+        # raise NotImplementedError
+        score_val = 0.0
+        for feat_name, feat_value in datapoint.features.items():
+            key = self._get_weight_key(feat_name, label)
+            # self.weights[key] returns 0.0 if key is missing (defaultdict)
+            score_val += self.weights[key] * feat_value
+        return score_val
+    
     def predict(self, datapoint: DataPointWithFeatures) -> str:
         """Predicts a label for an input.
 
@@ -62,7 +75,16 @@ class PerceptronModel:
             The predicted class.
         """
         # TODO: Implement this! Expected # of lines: <5
-        raise NotImplementedError
+        # raise NotImplementedError
+        if not self.labels:
+            return ""
+        
+        # Sort labels to ensure deterministic tie-breaking.
+        # This prevents random failures in tests if scores are identical.
+        sorted_labels = sorted(list(self.labels))
+        
+        # Returns the label with the highest score
+        return max(sorted_labels, key=lambda l: self.score(datapoint, l))
 
     def update_parameters(
         self, datapoint: DataPointWithFeatures, prediction: str, lr: float
@@ -75,7 +97,21 @@ class PerceptronModel:
             lr: Learning rate.
         """
         # TODO: Implement this! Expected # of lines: <10
-        raise NotImplementedError
+        # raise NotImplementedError
+        # If prediction is correct, do nothing
+        if prediction == datapoint.label:
+            return
+
+        # Perceptron Update Rule:
+        # Weights for CORRECT label increase by (lr * feature_value)
+        # Weights for WRONG (predicted) label decrease by (lr * feature_value)
+        for feat_name, feat_value in datapoint.features.items():
+            correct_key = self._get_weight_key(feat_name, datapoint.label)
+            wrong_key = self._get_weight_key(feat_name, prediction)
+            
+            self.weights[correct_key] += lr * feat_value
+            self.weights[wrong_key] -= lr * feat_value
+        
 
     def train(
         self,
@@ -95,7 +131,19 @@ class PerceptronModel:
             lr: Learning rate.
         """
         # TODO: Implement this!
-        raise NotImplementedError
+        # raise NotImplementedError
+        # 1. Register all unique labels from the training data
+        for dp in training_data:
+            if dp.label:
+                self.labels.add(dp.label)
+
+        # 2. Training Loop
+        # The instructions mention picking examples "in sequence", so we iterate directly.
+        for epoch in range(num_epochs):
+            # Using tqdm for progress tracking
+            for dp in tqdm(training_data, desc=f"Epoch {epoch+1}"):
+                prediction = self.predict(dp)
+                self.update_parameters(dp, prediction, lr)
 
     def save_weights(self, path: str) -> None:
         with open(path, "w") as f:
@@ -117,7 +165,24 @@ class PerceptronModel:
             accuracy (float): The accuracy of the model on the data.
         """
         # TODO: Implement this!
-        raise NotImplementedError
+        # raise NotImplementedError
+        predictions = []
+        targets = []
+        
+        for dp in data:
+            pred = self.predict(dp)
+            predictions.append(pred)
+            # For test data, label might be None, but accuracy requires targets
+            if dp.label is not None:
+                targets.append(dp.label)
+
+        if save_path:
+            save_results([DataPoint(d.id, d.text, d.label) for d in data], predictions, save_path)
+
+        # If we have targets, compute accuracy, otherwise return 0.0
+        if targets:
+            return accuracy(predictions, targets)
+        return 0.0
 
 
 if __name__ == "__main__":

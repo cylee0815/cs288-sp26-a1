@@ -26,12 +26,19 @@ def read_labeled_data(
     data_filename: str, labels_filename: str
 ) -> List[DataPoint]:
     # TODO: implement this! Expected # of lines: <10
-    raise NotImplementedError
+    # raise NotImplementedError
+    # Merge data and labels on the 'id' column to ensure alignment
+    labeled_data = pd.merge(pd.read_csv(data_filename), pd.read_csv(labels_filename), on="id")
+    # Convert dataframe rows to DataPoint objects
+    return [DataPoint(row.id, row.text, str(row.label)) for row in labeled_data.itertuples()]
 
 
 def read_unlabeled_data(data_filename: str) -> List[DataPoint]:
     # TODO: implement this! Expected # of lines: <10
-    raise NotImplementedError
+    # raise NotImplementedError
+    df = pd.read_csv(data_filename)
+    # Set label to None for unlabeled data
+    return [DataPoint(row.id, row.text, None) for row in df.itertuples()]
 
 
 def load_data(
