@@ -249,7 +249,7 @@ class Trainer:
         correct = 0
         total = 0
         dataloader = DataLoader(data, batch_size=32, shuffle=False)
-        
+
         with torch.no_grad():
             for features, lengths, labels in dataloader:
                 features = features.to(device)
@@ -271,6 +271,8 @@ class Trainer:
         val_data: BOWDataset,
         optimizer: torch.optim.Optimizer,
         num_epochs: int,
+        label_smoothing: float,
+        lr_scheduler_name: str,
     ) -> None:
         """Trains the MLP.
 
@@ -288,10 +290,61 @@ class Trainer:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(device)
 
+        dataloader = DataLoader(training_data, batch_size=4, shuffle=True)
+        steps_per_epoch = len(dataloader)
+        total_steps = num_epochs * steps_per_epoch
+        
+        # ---- Scheduler factories (NOT instantiated yet) ----
+        SCHEDULER_MAP = {
+            "no": lambda: None,
+    
+            "cos": lambda: torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max=num_epochs,
+                eta_min=1e-5
+            ),
+    
+            "step": lambda: torch.optim.lr_scheduler.StepLR(
+                optimizer,
+                step_size=max(1, num_epochs // 3),
+                gamma=0.5
+            ),
+    
+            "multistep": lambda: torch.optim.lr_scheduler.MultiStepLR(
+                optimizer,
+                milestones=[num_epochs // 2, int(0.75 * num_epochs)],
+                gamma=0.5
+            ),
+    
+            "plateau": lambda: torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                mode="min",
+                factor=0.5,
+                patience=2
+            ),
+    
+            # Batch-based
+            "onecycle": lambda: torch.optim.lr_scheduler.OneCycleLR(
+                optimizer,
+                max_lr=3e-3,          # 3x base lr
+                total_steps=total_steps,
+                pct_start=0.1,         # 10% warmup
+                anneal_strategy="cos",
+                div_factor=10.0,     # start lr = 3e-4
+                final_div_factor=1e3 # end lr = 3e-6
+            ),
+        }
+    
+        # ---- Create scheduler ONCE ----
+        if lr_scheduler_name not in SCHEDULER_MAP:
+            raise ValueError(f"Unknown lr_scheduler: {lr_scheduler_name}")
+    
+        scheduler = SCHEDULER_MAP[lr_scheduler_name]()
+
         for epoch in range(num_epochs):
             self.model.train()
             total_loss = 0. #0
-            dataloader = DataLoader(training_data, batch_size=4, shuffle=True)
+            # dataloader = DataLoader(training_data, batch_size=4, shuffle=True)
             for inputs_b_l, lengths_b, labels_b in tqdm(dataloader):
                 # TODO: Implement this!
                 # raise NotImplementedError
@@ -307,7 +360,7 @@ class Trainer:
                 logits = self.model(inputs_b_l, lengths_b)
 
                 # 3. Compute Loss
-                loss_fn = nn.CrossEntropyLoss()
+                loss_fn = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
                 loss = loss_fn(logits, labels_b)
 
                 # 4. Backward Pass
@@ -315,6 +368,10 @@ class Trainer:
 
                 # 5. Update Weights
                 optimizer.step()
+                
+                # ---- OneCycle steps per batch ----
+                if scheduler is not None and lr_scheduler_name == "onecycle":
+                    scheduler.step()
 
                 # 6. Accumulate Loss
                 total_loss += loss.item()
@@ -323,9 +380,26 @@ class Trainer:
             self.model.eval()
             val_acc = self.evaluate(val_data)
 
+            # ---- Epoch-based scheduler step ----
+            if scheduler is not None and lr_scheduler_name != "onecycle":
+                if lr_scheduler_name == "plateau":
+                    # Plateau expects a metric, usually val loss
+                    scheduler.step(per_dp_loss)
+                else:
+                    scheduler.step()
+
+            current_lr = optimizer.param_groups[0]["lr"]
+    
             print(
-                f"Epoch: {epoch + 1:<2} | Loss: {per_dp_loss:.2f} | Val accuracy: {100 * val_acc:.2f}%"
+                f"Epoch: {epoch + 1:<2} | "
+                f"Loss: {per_dp_loss:.2f} | "
+                f"Val accuracy: {100 * val_acc:.2f}% | "
+                f"LR: {current_lr:.2e}"
             )
+
+            # print(
+            #     f"Epoch: {epoch + 1:<2} | Loss: {per_dp_loss:.2f} | Val accuracy: {100 * val_acc:.2f}%"
+            # )
 
 
 if __name__ == "__main__":
@@ -334,19 +408,28 @@ if __name__ == "__main__":
         "-d",
         "--data",
         type=str,
-        default="sst2",
+        default="newsgroups",
         help="Data source, one of ('sst2', 'newsgroups')",
     )
     parser.add_argument(
-        "-e", "--epochs", type=int, default=3, help="Number of epochs"
+        "-e", "--epochs", type=int, default=20, help="Number of epochs"
     )
     parser.add_argument(
         "-l", "--learning_rate", type=float, default=0.001, help="Learning rate"
     )
+    parser.add_argument(
+        "-ls", "--label_smoothing", type=float, default=0.1, help="Label smoothing for training loss"
+    )
+    parser.add_argument(
+        "-lrs", "--lr_scheduler", type=str, default="onecycle", help="Learning rate scheduler"
+    )
+    
     args = parser.parse_args()
 
     num_epochs = args.epochs
     lr = args.learning_rate
+    label_smoothing = args.label_smoothing
+    lr_scheduler_name = args.lr_scheduler
     data_type = DataType(args.data)
 
     train_data, val_data, dev_data, test_data = load_data(data_type)
@@ -371,8 +454,8 @@ if __name__ == "__main__":
     trainer = Trainer(model)
 
     print("Training the model...")
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    trainer.train(train_ds, val_ds, optimizer, num_epochs)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    trainer.train(train_ds, val_ds, optimizer, num_epochs, label_smoothing, lr_scheduler_name)
 
     # Evaluate on dev
     dev_acc = trainer.evaluate(dev_ds)

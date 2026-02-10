@@ -199,14 +199,14 @@ if __name__ == "__main__":
         "-f",
         "--features",
         type=str,
-        default="bow",
+        default="bow+len+bigram+sentiment+ratios",
         help="Feature type, e.g., bow+len",
     )
     parser.add_argument(
-        "-e", "--epochs", type=int, default=3, help="Number of epochs"
+        "-e", "--epochs", type=int, default=20, help="Number of epochs"
     )
     parser.add_argument(
-        "-l", "--learning_rate", type=float, default=0.1, help="Learning rate"
+        "-l", "--learning_rate", type=float, default=0.001, help="Learning rate"
     )
     args = parser.parse_args()
 
